@@ -138,6 +138,25 @@ def AdvancedMenu(header="AdvancedMenu", message="Hello"):
 	oc.add(PopupDirectoryObject(key = Callback(ResetHueToken),title = 'Reset Hue token',thumb = R(PREFS_ICON)))
 	oc.add(RestartHelloHue())
 	return oc
+
+####################################################################################################
+# HelloHue External API
+####################################################################################################
+@route(PREFIX + '/api/status')
+def ApiStatus():
+	if "thread_websocket" in str(threading.enumerate()):
+		return DataObject("1", 'text/plain')
+	if not "thread_websocket" in str(threading.enumerate()):
+		return DataObject("0", 'text/plain')
+@route(PREFIX + '/api/start')
+def ApiStart():
+	EnableHelloHueCallback()
+	return DataObject("1", 'text/plain')
+@route(PREFIX + '/api/stop')
+def ApiStop():
+	DisableHelloHueCallback()
+	return DataObject("0", 'text/plain')
+
 ####################################################################################################
 # Reset Plex Token
 ####################################################################################################
