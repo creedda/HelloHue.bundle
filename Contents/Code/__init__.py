@@ -123,6 +123,11 @@ def MainMenu(header=NAME, message="Hello"):
 	oc.add(DirectoryObject(key = Callback(AdvancedMenu),title = 'Advanced Menu',thumb = R(PREFS_ICON)))
 	# Add item for setting preferences	
 	oc.add(PrefsObject(title = L('Preferences'), thumb = R(PREFS_ICON)))
+	if errors and len(errors) > 0:
+		oc.add(DirectoryObject(key = Callback(MainMenu),title = "WARNING - Potential errors in your settings:",thumb = R(PREFS_ICON)))
+		for error in errors:
+			oc.add(DirectoryObject(key = Callback(MainMenu),title = error,thumb = R(PREFS_ICON)))
+		oc.add(DirectoryObject(key = Callback(MainMenu),title = "Update your settings and refresh this page",thumb = R(PREFS_ICON)))
 	return oc
 
 ####################################################################################################
@@ -293,7 +298,8 @@ def DisableHelloHueCallback():
 ####################################################################################################
 @route(PREFIX + '/ValidatePrefs')
 def ValidatePrefs():
-	global auth, plex, hue, converter, active_clients, firstrun, plextv_clients, plextv_users
+	global auth, plex, hue, converter, active_clients, firstrun, plextv_clients, plextv_users, errors
+	errors = []
 	Log('Validating Prefs')
 	auth = HueCheck().check_username()
 	if auth is False:
@@ -307,6 +313,15 @@ def ValidatePrefs():
 	Log(plextv_clients)
 	plextv_users = plex.get_plextv_users()
 	Log(plextv_users)
+	if plextv_clients == "error" or plextv_users == "error":
+		errors.append(">> can't reach plex.tv. Update you login/password in settings and reset your plex token in the advanced menu")
+	else:
+		try:
+			r = requests.get('http://' + Prefs['PLEX_ADDRESS'] + '/status/sessions?X-Plex-Token=' + ACCESS_TOKEN, headers=HEADERS)
+		except:
+			errors.append(">> can't reach plex server. Update the plex ip in the settings")
+	if auth is False:
+		errors.append(">> can't reach Hue bridge. Update Hue IP in settings")
 	CompileRooms()
 	hue.get_hue_light_groups()
 	InitiateCurrentStatus()
@@ -731,6 +746,15 @@ def CompileRooms():
 	while j < 6:
 		if Prefs['HUE_ROOM_' + str(j)] is True and not Prefs['PLEX_CLIENT_' + str(j)] == '' and not Prefs['HUE_LIGHTS_' + str(j)] == '' and not Prefs['PLEX_AUTHORIZED_USERS_' + str(j)] == '':
 			Log("Adding room %s to rooms .." %j)
+			# checking if settings are still default
+			default = False
+			if Prefs['HUE_LIGHTS_' + str(j)] == "Light 1, Light 2":
+				if Prefs['HUE_GROUPS_' + str(j)] == "Group 1, Group 2":
+					if Prefs['PLEX_AUTHORIZED_USERS_' + str(j)] == "username1, username2" or Prefs['PLEX_AUTHORIZED_USERS_' + str(j)] == "username1":
+						if Prefs['PLEX_CLIENT_' + str(j)] == "client" + str(j):
+							default = True
+							errors.append(">> room " + str(j) + ": settings are default. Please update to your settings")
+							Log("-- Error : settings are default")
 			room= {}
 			room['client'] = Prefs['PLEX_CLIENT_' + str(j)]
 			lights = [x for x in pattern.split(Prefs['HUE_LIGHTS_' + str(j)]) if x]
@@ -742,6 +766,8 @@ def CompileRooms():
 					B.get_light(light, 'on')
 				except:
 					Log("-- Error : light %s does not exist in Hue bridge, skipping." % light)
+					if not Prefs['HUE_LIGHTS_' + str(j)] == "Light 1, Light 2":
+						errors.append(">> room " + str(j) + ": light " + light + " does not exist in Hue bridge.")
 				else:
 					try:
 						B.get_light(light, 'bri')
@@ -784,7 +810,13 @@ def CompileRooms():
 							colorgroups.append(group)
 							Log("-- Success : group %s does exist in Hue bridge, adding." % group)
 				else:
+					if not Prefs['HUE_GROUPS_' + str(j)] == "Group 1, Group 2":
+						errors.append(">> room " + str(j) + ": group " + group + " does not exist in Hue bridge.")
 					Log("-- Error : group %s does not exist in Hue bridge, skipping." % group)
+			
+			if Prefs['HUE_GROUPS_' + str(j)] == "Group 1, Group 2" and Prefs['HUE_LIGHTS_' + str(j)] == "Light 1, Light 2":
+				errors.append(">> room " + str(j) + ": lights and light groups are still default.")
+
 			room['groups'] = colorgroups
 			room['luxgroups'] = luxgroups
 			room['onoffgroups'] = onoffgroups
@@ -795,6 +827,7 @@ def CompileRooms():
 					Log("-- Success : user %s exists in plex.tv" % (user))
 				else:
 					Log("-- Error : user %s does not exist in plex.tv" % (user))
+					errors.append(">> room " + str(j) + ": user " + user + " does not exist in plex.tv")
 
 			room['playing'] = Prefs['HUE_ACTION_PLAYING_' + str(j)]
 			room['paused'] = Prefs['HUE_ACTION_PAUSED_' + str(j)]
@@ -821,6 +854,7 @@ def CompileRooms():
 				Log("-- Success : client %s exists in plex.tv" % (room['client']))
 			else:
 				Log("-- Error : client %s does not exist in plex.tv" % (room['client']))
+				errors.append(">> room " + str(j) + ": client " + room['client'] + " does not exist in plex.tv")
 			Log("Room %s was added to rooms .." % j)
 
 		else:
