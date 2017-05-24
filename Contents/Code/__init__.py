@@ -293,7 +293,7 @@ def DisableHelloHueCallback():
 ####################################################################################################
 @route(PREFIX + '/ValidatePrefs')
 def ValidatePrefs():
-	global auth, plex, hue, converter, active_clients, firstrun, plextv_clients
+	global auth, plex, hue, converter, active_clients, firstrun, plextv_clients, plextv_users
 	Log('Validating Prefs')
 	auth = HueCheck().check_username()
 	if auth is False:
@@ -305,6 +305,8 @@ def ValidatePrefs():
 	plex = Plex()
 	plextv_clients = plex.get_plextv_clients()
 	Log(plextv_clients)
+	plextv_users = plex.get_plextv_users()
+	Log(plextv_users)
 	CompileRooms()
 	hue.get_hue_light_groups()
 	InitiateCurrentStatus()
@@ -681,23 +683,54 @@ class Plex:
 		e = json.loads(r.text)
 		try:
 			Log("success getting client from plex.tv")
-			return e
+			clients = []
+			for client in e:
+				if client['name'] is not "null":
+					clients.append(client['name'])
+			return clients
 		except (ValueError, KeyError, TypeError):
 			Log("error getting client from plex.tv")
 			return "error"
-
-
+	
+	def get_plextv_users(self):
+		plexauth = {'user[login]': Prefs['PLEX_USERNAME'], 'user[password]': Prefs['PLEX_PASSWORD']}
+		r = requests.get('https://plex.tv/users/account?X-Plex-Token=' + ACCESS_TOKEN, params=plexauth, headers=HEADERS)
+		e = ElementTree.fromstring(r.text.encode('utf-8'))
+		try:
+			Log("success getting account info from plex.tv")
+			users = []
+			users.append(e.get('title'))
+			r2 = requests.get('https://plex.tv/api/users?X-Plex-Token=' + ACCESS_TOKEN, params=plexauth, headers=HEADERS)
+			e2 = ElementTree.fromstring(r2.text.encode('utf-8'))
+			try:
+				Log("success getting friends info from plex.tv")
+				for user in e2.findall('User'):
+					users.append(user.get('title'))
+				Log("success getting users info from plex.tv")
+				return users
+			except (ValueError, KeyError, TypeError):
+				Log("error getting friends from plex.tv")
+				return "error"
+		except (ValueError, KeyError, TypeError):
+			Log("error getting account info from plex.tv")
+			return "error"
+		
 ####################################################################################################
 # Compile rooms in list/dictionary on plugin start or pref change
 ####################################################################################################
+
+def BuildErrorReport():
+	global report
 
 def CompileRooms():
 	global rooms
 	pattern = re.compile("^\s+|\s*,\s*|\s+$")
 	rooms = []
 	j = 1
+	Log("Beginning room check")
 	while j < 6:
 		if Prefs['HUE_ROOM_' + str(j)] is True and not Prefs['PLEX_CLIENT_' + str(j)] == '' and not Prefs['HUE_LIGHTS_' + str(j)] == '' and not Prefs['PLEX_AUTHORIZED_USERS_' + str(j)] == '':
+			Log("Adding room %s to rooms .." %j)
 			room= {}
 			room['client'] = Prefs['PLEX_CLIENT_' + str(j)]
 			lights = [x for x in pattern.split(Prefs['HUE_LIGHTS_' + str(j)]) if x]
@@ -708,20 +741,23 @@ def CompileRooms():
 				try:
 					B.get_light(light, 'on')
 				except:
-					Log("Skipping this light")
+					Log("-- Error : light %s does not exist in Hue bridge, skipping." % light)
 				else:
 					try:
 						B.get_light(light, 'bri')
 					except:
 						onofflights.append(light)
+						Log("-- Success : light %s does exist in Hue bridge, adding." % light)
 					else:			
 						try:
 							B.get_light(light, 'sat')
 							B.get_light(light, 'hue')
 						except:
 							luxlights.append(light)
+							Log("-- Success : light %s does exist in Hue bridge, adding." % light)
 						else:
 							colorlights.append(light)
+							Log("-- Success : light %s does exist in Hue BRIDGE, adding." % light)
 
 			room['lights'] = colorlights
 			room['luxlights'] = luxlights
@@ -736,18 +772,30 @@ def CompileRooms():
 						B.get_group(group, 'bri')
 					except:
 						onoffgroups.append(group)
+						Log("-- Success : group %s does exist in Hue bridge, adding." % group)
 					else:			
 						try:
 							B.get_group(group, 'sat')
 							B.get_group(group, 'hue')
 						except:
 							luxgroups.append(group)
+							Log("-- Success : group %s does exist in Hue bridge, adding." % group)
 						else:
 							colorgroups.append(group)
+							Log("-- Success : group %s does exist in Hue bridge, adding." % group)
+				else:
+					Log("-- Error : group %s does not exist in Hue bridge, skipping." % group)
 			room['groups'] = colorgroups
 			room['luxgroups'] = luxgroups
 			room['onoffgroups'] = onoffgroups
 			room['users'] = [x for x in pattern.split(Prefs['PLEX_AUTHORIZED_USERS_' + str(j)]) if x]
+
+			for user in room['users']:
+				if user in plextv_users:
+					Log("-- Success : user %s exists in plex.tv" % (user))
+				else:
+					Log("-- Error : user %s does not exist in plex.tv" % (user))
+
 			room['playing'] = Prefs['HUE_ACTION_PLAYING_' + str(j)]
 			room['paused'] = Prefs['HUE_ACTION_PAUSED_' + str(j)]
 			room['stopped'] = Prefs['HUE_ACTION_STOPPED_' + str(j)]
@@ -768,10 +816,12 @@ def CompileRooms():
 			room['hambisync_on'] = Prefs['HAM_ON_' + str(j)]
 			room['hambisync_off'] = Prefs['HAM_OFF_' + str(j)]
 			rooms.append(room)
-			Log("Adding room %s to rooms .." %j)
-			for i in plextv_clients:
-				if room['client'] == i['name']:
-					Log("Client exists in plex.tv")
+			
+			if room['client'] in plextv_clients:
+				Log("-- Success : client %s exists in plex.tv" % (room['client']))
+			else:
+				Log("-- Error : client %s does not exist in plex.tv" % (room['client']))
+			Log("Room %s was added to rooms .." % j)
 
 		else:
 			Log("skipping room %s." %j)
@@ -1036,16 +1086,18 @@ def run_websocket_watcher():
 def on_message(ws, message):
 	json_object = json.loads(message)
 	Log("WS: got new ws notif")
-	Log(json_object)
 	try:
 		if json_object['type'] == 'playing':
-			Log("WS: notification type is playing, passing to is_plex_playing")
+			Log(json_object)
+			Log("WS : notification type is playing, passing to is_plex_playing")
 			plex_status = plex.get_plex_status()
 			Log("WS: Current plex status ...")
 			for item in plex_status.findall('Video'):
 				for player in item.iter('Player'):
 					Log(player.attrib)
 			is_plex_playing(plex_status)
+		else:
+			Log("-- notification type is not playing, skipping")
 	except:
 		pass
 	try:
@@ -1154,24 +1206,36 @@ def is_plex_playing(plex_status):
 	configuredclients = ReturnClients()
 	ACTIVE_CLIENTS = []
 	somethingwasdone = False
+	Log("%s session detected", (len(plex_status.findall('Video'))))
 	for item in plex_status.findall('Video'):
+		Log("session info")
+		Log("-- title      : %s", (item.get('title')))
+		Log("-- state      : %s", (item.find('Player').get('state')))
+		Log("-- username   : %s", (item.find('User').get('title')))
+		Log("-- clientname : %s", (item.find('Player').get('title')))
 		for room, client_name in configuredclients.iteritems():
-			if item.find('Player').get('title') == client_name:
+			currentclient = item.find('Player').get('title')
+			if currentclient == client_name:
+				Log("client %s is configured in room %s, continuing" % (currentclient, room))
 				client_name_room = client_name + str(room)
 				if not client_name_room in ACTIVE_CLIENTS:
 					ACTIVE_CLIENTS.append(client_name_room)
 				configuredusers = ReturnUsersFromClient(client_name, room)
 				for username in configuredusers:
-					if item.find('User').get('title') == username:
+					currentuser = item.find('User').get('title')
+					if currentuser == username:
+						Log("user %s is configured for client %s in the room %s, continuing" % (username, client_name, room))
 						if item.find('Player').get('state') == 'playing' and CURRENT_STATUS[client_name + str(room)] != item.find('Player').get('state') and compare_duration(duration=get_playing_item_duration(item, client_name, room), pref=ReturnFromClient(client_name, "min_duration", room)) is True:
-							plex_is_playing(client_name=client_name, room=room, user=item.find('User').get('title'), gptitle=item.get('grandparentTitle'), title=item.get('title'), state=item.find('Player').get('state'), item=item, transition_type="transition_resumed")
+							plex_is_playing(client_name=client_name, room=room, user=currentuser, gptitle=item.get('grandparentTitle'), title=item.get('title'), state=item.find('Player').get('state'), item=item, transition_type="transition_resumed")
 							somethingwasdone = True
 						elif item.find('Player').get('state') == 'paused' and CURRENT_STATUS[client_name + str(room)] != item.find('Player').get('state') and compare_duration(duration=get_playing_item_duration(item, client_name, room), pref=ReturnFromClient(client_name, "min_duration", room)) is True:
-							plex_is_playing(client_name=client_name, room=room, user=item.find('User').get('title'), gptitle=item.get('grandparentTitle'), title=item.get('title'), state=item.find('Player').get('state'), item=item, transition_type="transition_paused")
+							plex_is_playing(client_name=client_name, room=room, user=currentuser, gptitle=item.get('grandparentTitle'), title=item.get('title'), state=item.find('Player').get('state'), item=item, transition_type="transition_paused")
 							somethingwasdone = True
 						CURRENT_MEDIA[client_name + str(room)] = item.get('key')
+					else:
+						Log("user %s not configured for client %s in the room %s, skipping" % (username, client_name, room))
 			else:
-				Log("client is not configured in channel settings, not doing anything.")
+				Log("client %s not configured in room %s, skipping" % (currentclient, room))
 	
 	if somethingwasdone is True:
 		return False
