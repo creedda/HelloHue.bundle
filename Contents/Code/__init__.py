@@ -315,13 +315,17 @@ def ValidatePrefs():
 	Log(plextv_users)
 	if plextv_clients == "error" or plextv_users == "error":
 		errors.append(">> can't reach plex.tv. Update you login/password in settings and reset your plex token in the advanced menu")
+	try:
+		r = requests.get('http://' + Prefs["PLEX_ADDRESS"] + '/status/sessions?X-Plex-Token=' + ACCESS_TOKEN, headers=HEADERS)
+	except:
+		errors.append(">> can't reach plex server at "+str(Prefs["PLEX_ADDRESS"])+". Update the plex ip in the settings")
 	else:
-		try:
-			r = requests.get('http://' + Prefs['PLEX_ADDRESS'] + '/status/sessions?X-Plex-Token=' + ACCESS_TOKEN, headers=HEADERS)
-		except:
-			errors.append(">> can't reach plex server. Update the plex ip in the settings")
+		Log("Success reaching plex server at %s" % Prefs["PLEX_ADDRESS"])
 	if auth is False:
 		errors.append(">> can't reach Hue bridge. Update Hue IP in settings")
+	if errors:
+		for error in errors:
+			Log(error)
 	CompileRooms()
 	hue.get_hue_light_groups()
 	InitiateCurrentStatus()
@@ -333,13 +337,6 @@ def ValidatePrefs():
 	if not "thread_websocket" in str(threading.enumerate()):
 		Log("Starting websocket daemon...")
 		threading.Thread(target=run_websocket_watcher,name='thread_websocket').start()
-	if "thread_clients" in str(threading.enumerate()):
-		Log("Setting firstrun to True")
-		firstrun = True
-	if not "thread_clients" in str(threading.enumerate()):
-		Log("Starting clients daemon...")
-		threading.Thread(target=watch_clients,name='thread_clients').start()
-	Log(threading.enumerate())
 	return MainMenu(header=NAME)
 
 ####################################################################################################
@@ -683,12 +680,12 @@ class Plex:
 			return Dict["token"]
 
 	def get_plex_status(self):
-		r = requests.get('http://' + Prefs['PLEX_ADDRESS'] + '/status/sessions?X-Plex-Token=' + ACCESS_TOKEN, headers=HEADERS)
+		r = requests.get('http://' + Prefs["PLEX_ADDRESS"] + '/status/sessions?X-Plex-Token=' + ACCESS_TOKEN, headers=HEADERS)
 		e = ElementTree.fromstring(r.text.encode('utf-8'))
 		return e
 
 	def get_plex_clients(self):
-		r = requests.get('http://' + Prefs['PLEX_ADDRESS'] + '/clients?X-Plex-Token=' + ACCESS_TOKEN, headers=HEADERS)
+		r = requests.get('http://' + Prefs["PLEX_ADDRESS"] + '/clients?X-Plex-Token=' + ACCESS_TOKEN, headers=HEADERS)
 		e = ElementTree.fromstring(r.text.encode('utf-8'))
 		return e
 
@@ -1109,7 +1106,7 @@ def run_websocket_watcher():
 	global ws
 	Log('Starting websocket listener')
 	websocket.enableTrace(True)
-	ws = websocket.WebSocketApp("ws://" + Prefs['PLEX_ADDRESS'] + "/:/websockets/notifications?X-Plex-Token=" + ACCESS_TOKEN, on_message = on_message)
+	ws = websocket.WebSocketApp('ws://' + Prefs["PLEX_ADDRESS"] + '/:/websockets/notifications?X-Plex-Token=' + ACCESS_TOKEN, on_message = on_message)
 	Log("Up and running, listening")
 	ws.run_forever()
 
@@ -1428,35 +1425,3 @@ def dim_lights(client_name, room, transitiontime):
 	dim_value = ReturnFromClient(client_name, "dim", room)
 	hue.update_light_state(powered=True, brightness=int(float(dim_value)), client_name=client_name, room=room, transitiontime=transitiontime, xy=None)
 	pass
-
-def watch_clients():
-	global firstrun
-	firstrun = True
-	plex_status = plex.get_plex_clients()
-	now_active = []
-	for item in plex_status.findall('Server'):
-		now_active.append(item.get('name'))
-		if firstrun is True:
-			active_clients.append(item.get('name'))
-	#Log("now_active: %s"%now_active)
-	#Log("active_clients: %s"%active_clients)
-	#Log("firstrun: %s"%firstrun)
-	if firstrun is False:
-		for client in now_active:
-			if not client in active_clients:
-				Log(ReturnRoomFromClient(client))
-				Log("%s detected, doing something"%client)
-				for roooms in ReturnRoomFromClient(client):
-					choose_action("turned_on", client, roooms, get_transition_time(ReturnFromClient(client, "transition_on", roooms)))
-				active_clients.append(client)
-		for client in active_clients:
-			if not client in now_active:
-				Log(ReturnRoomFromClient(client))
-				Log("%s went away, doing something"%client)
-				for roooms in ReturnRoomFromClient(client):
-					choose_action("turned_off", client, roooms, get_transition_time(ReturnFromClient(client, "transition_off", roooms)))
-				active_clients.remove(client)
-	if firstrun is True:
-		Log("Setting firstrun to False")
-		firstrun = False
-		pass
