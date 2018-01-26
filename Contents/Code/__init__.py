@@ -1156,7 +1156,7 @@ def is_plex_playing(plex_status):
 	somethingwasdone = False
 	for item in plex_status.findall('Video'):
 		for room, client_name in configuredclients.iteritems():
-			if item.find('Player').get('title') == client_name:
+			if item.find('Player').get('title') == client_name or item.find('Player').get('product') == client_name:
 				client_name_room = client_name + str(room)
 				if not client_name_room in ACTIVE_CLIENTS:
 					ACTIVE_CLIENTS.append(client_name_room)
