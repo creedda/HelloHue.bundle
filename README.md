@@ -25,7 +25,7 @@ One room is composed of **one client**, **one or multiple users** and **one or m
 * ```Preset 1, brightness:``` brightness value for lights preset 1.
 * ...
 * ```Activate HelloHue in room 1``` Tick to activate room 1 (and fill the client, users and lights settings for room 1).
-* ```Name of plex client able to trigger in room 1``` You can find the list of users in PMS -> settings -> devices. Only put ONE client per room. If your have two clients in the same room, activate an other room and fill the settings with the other clients name and the same lights names.
+* ```Name of plex client able to trigger in room 1``` You can find the list of users in PMS -> settings -> devices. Only put ONE client per room. If your have two clients in the same room, activate an other room and fill the settings with the other clients name and the same lights names. If your device does not work because it does not provide a valid title like the PS4, you can use the product name instead.
 * ```Name of the users able to trigger in room 1``` You can find the list of users in PMS -> settings -> users -> myhome. You can put multiple users (comma separated values, case sensitive).
 * ```Name of the lights to trigger in room 1``` is the list of lights that will be triggered in room 1. You can put multiple users (comma separated values, case sensitive).
 * ```When a media is playing in room 1``` is the action that will fire when a media is playing in room 1.
